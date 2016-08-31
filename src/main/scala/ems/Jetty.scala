@@ -14,7 +14,6 @@ object Jetty {
       username <- Properties.propOrNone("emsUsername").orElse(Properties.envOrNone("emsUsername"))
       password <- Properties.propOrNone("emsPassword").orElse(Properties.envOrNone("emsPassword"))
     } yield Credentials(username, password)
-    //val emsRoot = URI.create(Properties.propOrElse("eventRoot", Properties.envOrElse("eventRoot", "http://localhost:8082/server/events/")))
 
     jetty.Server.http(port).context(contextPath) {
       _.plan(Resources(baseURI, emsRoot, credentials))
