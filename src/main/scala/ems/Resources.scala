@@ -56,7 +56,11 @@ case class Resources(baseURI:String, eventRoot: URI, credentials: Option[Credent
           def authOrNot(req: Req): Req = credentials.map(c => req as_!(c.username, c.password)).getOrElse(req)
 
           postdata.map{case (href, vimeo) =>
-              Await.result(Http(authOrNot(url(href.toString) << Map("video" -> vimeo))).map(res => Status(res.getStatusCode)), 10.seconds)
+              Await.result(
+                Http(
+                  authOrNot(url(href.toString) <:< Map("If-Unmodified-Since" -> "*") << Map("video" -> vimeo))
+                ).map(res => Status(res.getStatusCode)),
+                10.seconds)
           }.getOrElse(NotFound)
         }
         case GET(_) => {
@@ -64,6 +68,7 @@ case class Resources(baseURI:String, eventRoot: URI, credentials: Option[Credent
             Ok ~> Html5(
               Snippets.page(baseURI,
                   <h1>{s.title}</h1>
+                  <div>{s.video.map(v => <a href={v.toString}>Registered Video</a>)}</div>
                   <form method="post">
                     <label><span>Vimeo url</span>
                       <input name="video" type="url"></input>
@@ -83,7 +88,7 @@ case class Resources(baseURI:String, eventRoot: URI, credentials: Option[Credent
     def toSession(i: Item): Option[Session] = for {
       title <- i.properties.find(_.name == "title")
       slug <- i.properties.find(_.name == "slug")
-    } yield Session(i.href, title.value.stringOrEmpty, slug.value.stringOrEmpty)
+    } yield Session(i.href, title.value.stringOrEmpty, slug.value.stringOrEmpty, i.links.find(_.rel == "alternate video").map(_.href))
 
     loadCollection(href).map(_.items.flatMap(toSession)).getOrElse(Vector.empty)
   }
@@ -118,6 +123,6 @@ case class Resources(baseURI:String, eventRoot: URI, credentials: Option[Credent
 }
 
 
-case class Session(href: URI, title: String, slug: String)
+case class Session(href: URI, title: String, slug: String, video: Option[URI])
 
 case class Event(href: URI, name: String, slug:String, sessions: URI)
