@@ -24,9 +24,14 @@ object Jetty {
       |Using credentials ${credentials.map(_.username).getOrElse("No Credentials")}
     """.stripMargin)
 
-    jetty.Server.http(port).context(contextPath) {
-      _.plan(Resources(baseURI, emsRoot, credentials))
-    }.run()
+    val http = jetty.Server.http(port)
+    (if (contextPath == "/") {
+      http.plan(Resources(baseURI, emsRoot, credentials))
+    } else {
+      http.context(contextPath) {
+        _.plan(Resources(baseURI, emsRoot, credentials))
+      }
+    }).run()
 
 
     ()
