@@ -25,7 +25,7 @@ object Jetty {
     """.stripMargin)
 
     val http = jetty.Server.http(port)
-    (if (contextPath == "/") {
+    (if (contextPath == "/" || contextPath.isEmpty) {
       http.plan(Resources(baseURI, emsRoot, credentials))
     } else {
       http.context(contextPath) {
