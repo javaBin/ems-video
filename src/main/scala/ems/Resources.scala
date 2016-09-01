@@ -16,6 +16,7 @@ import org.codehaus.httpcache4j.uri.URIBuilder
 
 import scala.concurrent.Await
 import scala.concurrent.duration._
+import scala.xml.NodeSeq
 
 case class Resources(baseURI:String, eventRoot: URI, redirect: URI, credentials: Option[Credentials]) extends Plan {
   private val cache = scala.collection.concurrent.TrieMap[URI, Collection]()
@@ -45,7 +46,7 @@ case class Resources(baseURI:String, eventRoot: URI, redirect: URI, credentials:
         </ul>
       ))
     }
-    case req@ContextPath(_, Seg("events" :: eventSlug :: "sessions" :: slug :: Nil)) => {
+    case req@ContextPath(_, path@Seg("events" :: eventSlug :: "sessions" :: slug :: Nil)) => {
       val uri = URIBuilder.fromURI(redirect).addParameter("event-slug", eventSlug).addParameter("session-slug", slug).toURI
       val res = Await.result(load(uri), 10.seconds)
       val session = res.flatMap(cl => toSessions(cl.collection).headOption)
@@ -60,32 +61,43 @@ case class Resources(baseURI:String, eventRoot: URI, redirect: URI, credentials:
           }
 
           def authOrNot(req: Req): Req = credentials.map(c => req as_!(c.username, c.password)).getOrElse(req)
-
           postdata.map{case (href, vimeo) =>
               Await.result(
                 client(
                   authOrNot(url(href.toString) <:< Map("If-Unmodified-Since" -> res.flatMap(_.lastModified).map(DateTimeFormatter.RFC_1123_DATE_TIME.format(_)).getOrElse("*")) << Map("video" -> vimeo))
-                ).map(res => Status(res.getStatusCode)),
+                ).map(res => if (res.getStatusCode >= 200 && res.getStatusCode < 300) SeeOther ~> Location(baseURI + path) else Status(res.getStatusCode)),
                 10.seconds)
           }.getOrElse(NotFound)
         }
         case GET(_) => {
           session.map{ s =>
+            val editForm: NodeSeq = {
+              if (credentials.isDefined) {
+                <div class="row">
+                  <form method="post">
+                    <label>
+                      <span>Vimeo url</span>
+                      <input name="video" type="url"></input>
+                    </label>
+                    <input type="submit" class="button button-big"></input>
+                  </form>
+                </div>
+              } else {
+                <div class="row">
+                  <p>Not possible to update since we have no configured username and password.</p>
+                  <p>Please contact the EMS guy to fix.</p>
+                </div>
+              }
+            }
+
             Ok ~> Html5(
               Snippets.page(baseURI,
                 <div class="row">
                   <h1>{s.title}</h1>
                 </div>
-                  <div class="row">Last updated { res.get.lastModified.map(_.toString).getOrElse("Never") }</div>
-                  <div class="row">{s.video.map(v => <a href={v.toString}>Registered Video</a>).getOrElse("No video is registered")}</div>
-                  <div class="row">
-                    <form method="post">
-                      <label><span>Vimeo url</span>
-                        <input name="video" type="url"></input>
-                      </label>
-                      <input type="submit" class="button button-big"></input>
-                    </form>
-                  </div>
+                <div class="row">Last updated { res.get.lastModified.map(_.toString).getOrElse("Never") }</div>
+                <div class="row">{s.video.map(v => <a href={v.toString}>Registered Video</a>).getOrElse("No video is registered")}</div>
+                ++ editForm
               ))
           }.getOrElse(NotFound ~> ResponseString("Not found"))
 
