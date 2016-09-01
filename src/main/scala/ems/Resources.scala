@@ -1,6 +1,8 @@
 package ems
 
 import java.net.URI
+import java.time.OffsetDateTime
+import java.time.format.DateTimeFormatter
 
 import unfiltered.filter._
 import unfiltered.filter.request._
@@ -10,12 +12,14 @@ import dispatch._
 import Defaults._
 import argonaut._
 import Argonaut._
+import org.codehaus.httpcache4j.uri.URIBuilder
 
 import scala.concurrent.Await
 import scala.concurrent.duration._
 
-case class Resources(baseURI:String, eventRoot: URI, credentials: Option[Credentials]) extends Plan {
+case class Resources(baseURI:String, eventRoot: URI, redirect: URI, credentials: Option[Credentials]) extends Plan {
   private val cache = scala.collection.concurrent.TrieMap[URI, Collection]()
+  private val client = Http.configure(_.setFollowRedirects(true))
 
   val intent: Plan.Intent = {
     case ContextPath(_, Seg(Nil)) => {
@@ -42,8 +46,10 @@ case class Resources(baseURI:String, eventRoot: URI, credentials: Option[Credent
       ))
     }
     case req@ContextPath(_, Seg("events" :: eventSlug :: "sessions" :: slug :: Nil)) => {
-      val event = loadEvents(eventRoot).find(_.slug == eventSlug)
-      val session = event.map(e => loadSessions(e.sessions)).getOrElse(Vector.empty).find(_.slug == slug)
+      val uri = URIBuilder.fromURI(redirect).addParameter("event-slug", eventSlug).addParameter("session-slug", slug).toURI
+      val res = Await.result(load(uri), 10.seconds)
+      val session = res.flatMap(cl => toSessions(cl.collection).headOption)
+
       req match {
         case POST(_) & Params(p) => {
           val postdata = for {
@@ -57,8 +63,8 @@ case class Resources(baseURI:String, eventRoot: URI, credentials: Option[Credent
 
           postdata.map{case (href, vimeo) =>
               Await.result(
-                Http(
-                  authOrNot(url(href.toString) <:< Map("If-Unmodified-Since" -> "*") << Map("video" -> vimeo))
+                client(
+                  authOrNot(url(href.toString) <:< Map("If-Unmodified-Since" -> res.flatMap(_.lastModified).map(DateTimeFormatter.RFC_1123_DATE_TIME.format(_)).getOrElse("*")) << Map("video" -> vimeo))
                 ).map(res => Status(res.getStatusCode)),
                 10.seconds)
           }.getOrElse(NotFound)
@@ -70,6 +76,7 @@ case class Resources(baseURI:String, eventRoot: URI, credentials: Option[Credent
                 <div class="row">
                   <h1>{s.title}</h1>
                 </div>
+                  <div class="row">Last updated { res.get.lastModified.map(_.toString).getOrElse("Never") }</div>
                   <div class="row">{s.video.map(v => <a href={v.toString}>Registered Video</a>).getOrElse("No video is registered")}</div>
                   <div class="row">
                     <form method="post">
@@ -87,14 +94,17 @@ case class Resources(baseURI:String, eventRoot: URI, credentials: Option[Credent
     }
   }
 
-
-  def loadSessions(href: URI): Vector[Session] = {
+  def toSessions(c: Collection) = {
     def toSession(i: Item): Option[Session] = for {
       title <- i.properties.find(_.name == "title")
       slug <- i.properties.find(_.name == "slug")
     } yield Session(i.href, title.value.stringOrEmpty, slug.value.stringOrEmpty, i.links.find(_.rel == "alternate video").map(_.href))
 
-    loadCollection(href).map(_.items.flatMap(toSession)).getOrElse(Vector.empty)
+    c.items.flatMap(toSession)
+  }
+
+  def loadSessions(href: URI): Vector[Session] = {
+    loadCollection(href).map(toSessions).getOrElse(Vector.empty)
   }
 
   def loadEvents(href: URI): Vector[Event] = {
@@ -110,7 +120,7 @@ case class Resources(baseURI:String, eventRoot: URI, credentials: Option[Credent
 
   def loadCollection(href: URI): Option[Collection] = {
     def load(): Option[Collection] = Await.result(
-      Http(url(href.toString)).map(_.getResponseBody("utf-8").decodeEither[Collection].fold(
+      client(url(href.toString)).map(_.getResponseBody("utf-8").decodeEither[Collection].fold(
         x => {
           println(x)
           None
@@ -124,8 +134,18 @@ case class Resources(baseURI:String, eventRoot: URI, credentials: Option[Credent
       c
     }
   }
+
+  def load(href: URI): Future[Option[CollectionWithLastModified]] = {
+    client(url(href.toString)).map{res =>
+      val lm = Option(res.getHeader("Last-Modified")).map(OffsetDateTime.parse(_, DateTimeFormatter.RFC_1123_DATE_TIME))
+      res.getResponseBody("utf-8").decodeOption[Collection].map(c =>
+        CollectionWithLastModified(c, lm)
+      )
+    }
+  }
 }
 
+case class CollectionWithLastModified(collection: Collection, lastModified: Option[OffsetDateTime])
 
 case class Session(href: URI, title: String, slug: String, video: Option[URI])
 

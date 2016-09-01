@@ -10,6 +10,7 @@ object Jetty {
     val contextPath = Properties.propOrElse("contextPath", Properties.envOrElse("contextPath", "/ems-video"))
     val baseURI = Properties.propOrElse("baseURI", Properties.envOrElse("baseURI", s"http://localhost:$port$contextPath"))
     val emsRoot = URI.create(Properties.propOrElse("eventRoot", Properties.envOrElse("eventRoot", "http://localhost:8081/server/events/")))
+    val redirectURI = URI.create(Properties.propOrElse("redirectURI", Properties.envOrElse("redirectURI", "http://localhost:8081/server/redirect")))
     val credentials = for {
       username <- Properties.propOrNone("emsUsername").orElse(Properties.envOrNone("emsUsername"))
       password <- Properties.propOrNone("emsPassword").orElse(Properties.envOrNone("emsPassword"))
@@ -26,10 +27,10 @@ object Jetty {
 
     val http = jetty.Server.http(port)
     (if (contextPath == "/" || contextPath.isEmpty) {
-      http.plan(Resources(baseURI, emsRoot, credentials))
+      http.plan(Resources(baseURI, emsRoot, redirectURI, credentials))
     } else {
       http.context(contextPath) {
-        _.plan(Resources(baseURI, emsRoot, credentials))
+        _.plan(Resources(baseURI, emsRoot, redirectURI, credentials))
       }
     }).run()
 
