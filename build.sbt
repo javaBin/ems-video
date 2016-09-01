@@ -6,6 +6,8 @@ description := "Site for updating videos"
 
 scalaVersion := "2.11.8"
 
+crossPaths := false
+
 crossScalaVersions := Seq("2.11.8")
 
 
