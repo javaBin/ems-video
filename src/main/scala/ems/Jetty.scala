@@ -15,6 +15,15 @@ object Jetty {
       password <- Properties.propOrNone("emsPassword").orElse(Properties.envOrNone("emsPassword"))
     } yield Credentials(username, password)
 
+    println(s"""
+      |Starting App using port $port and
+      |contextPath=$contextPath
+      |BaseURI is $baseURI
+      |Requesting from $emsRoot
+      |
+      |Using credentials ${credentials.map(_.username).getOrElse("No Credentials")}
+    """.stripMargin)
+
     jetty.Server.http(port).context(contextPath) {
       _.plan(Resources(baseURI, emsRoot, credentials))
     }.run()
