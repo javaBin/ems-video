@@ -67,14 +67,18 @@ case class Resources(baseURI:String, eventRoot: URI, credentials: Option[Credent
           session.map{ s =>
             Ok ~> Html5(
               Snippets.page(baseURI,
+                <div class="row">
                   <h1>{s.title}</h1>
-                  <div>{s.video.map(v => <a href={v.toString}>Registered Video</a>)}</div>
-                  <form method="post">
-                    <label><span>Vimeo url</span>
-                      <input name="video" type="url"></input>
-                    </label>
-                    <input type="submit" class="button button-big"></input>
-                  </form>
+                </div>
+                  <div class="row">{s.video.map(v => <a href={v.toString}>Registered Video</a>).getOrElse("No video is registered")}</div>
+                  <div class="row">
+                    <form method="post">
+                      <label><span>Vimeo url</span>
+                        <input name="video" type="url"></input>
+                      </label>
+                      <input type="submit" class="button button-big"></input>
+                    </form>
+                  </div>
               ))
           }.getOrElse(NotFound ~> ResponseString("Not found"))
 
